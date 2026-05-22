@@ -208,7 +208,7 @@ function Dashboard(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [checking, setChecking] = useState<boolean>(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const [sort, setSort] = useState<SortKey>('added');
+  const [sort, setSort] = useState<SortKey>(() => (localStorage.getItem('dashboard-sort') as SortKey) || 'added');
   const [lastCheck, setLastCheck] = useState<LastCheckResponse | null>(null);
   const [showLastCheck, setShowLastCheck] = useState<boolean>(false);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
@@ -326,7 +326,7 @@ function Dashboard(): JSX.Element {
         {(['added', 'name', 'updated'] as SortKey[]).map((key) => (
           <button
             key={key}
-            onClick={() => setSort(key)}
+            onClick={() => { setSort(key); localStorage.setItem('dashboard-sort', key); }}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
               sort === key
                 ? 'bg-blue-600 text-white border-blue-600'
