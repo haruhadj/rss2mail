@@ -6,13 +6,16 @@ RSS2Mail WebUI Backend - FastAPI Server
 import os
 import sys
 import smtplib
+import logging
 from email.mime.text import MIMEText
 from typing import Optional, List
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from apscheduler.schedulers.background import BackgroundScheduler
 import feedparser
 
 # Add project root to path
@@ -32,7 +35,49 @@ except ImportError:
 # Initialize DB (creates tables + seeds from config files on first run)
 db.init_db()
 
-app = FastAPI(title="RSS2Mail API")
+logger = logging.getLogger("rss2mail.scheduler")
+
+_scheduler = BackgroundScheduler()
+
+
+def _scheduled_check_all():
+    logger.info("Scheduled check: running...")
+    feeds = db.get_feeds()
+    opts = CheckOptions(send_email=True, send_messenger=None, max_items=5)
+    for f in feeds:
+        try:
+            _do_check(f["id"], f["name"], f["url"], opts)
+        except Exception as e:
+            logger.error("Scheduled check error for '%s': %s", f["name"], e)
+    logger.info("Scheduled check: done")
+
+
+def _reschedule(interval_minutes: int):
+    """Replace the running job with a new interval. Safe to call at any time."""
+    if _scheduler.get_job("check_all"):
+        _scheduler.remove_job("check_all")
+    _scheduler.add_job(
+        _scheduled_check_all,
+        trigger="interval",
+        minutes=interval_minutes,
+        id="check_all",
+        replace_existing=True,
+    )
+    logger.info("Scheduler set to every %d minute(s)", interval_minutes)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    interval = db.get_settings().get("send_interval", 15)
+    _reschedule(int(interval))
+    _scheduler.start()
+    logger.info("Scheduler started")
+    yield
+    _scheduler.shutdown(wait=False)
+    logger.info("Scheduler stopped")
+
+
+app = FastAPI(title="RSS2Mail API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -246,6 +291,8 @@ def update_settings(body: SettingsUpdate):
     data = {k: v for k, v in body.model_dump().items() if v is not None}
     db.update_settings(data)
     db.add_log("Settings updated")
+    if "send_interval" in data:
+        _reschedule(int(data["send_interval"]))
     return {"success": True, "message": "Settings updated successfully"}
 
 
