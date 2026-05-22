@@ -1,0 +1,140 @@
+# RSS2Mail
+
+Monitor RSS feeds and send new items via **Gmail** and/or **Facebook Messenger**.
+Includes a full **WebUI** for managing feeds, settings, and logs.
+
+---
+
+## Features
+
+- Monitor multiple RSS feeds on a configurable interval
+- Send email digests via Gmail (SMTP)
+- Send updates to Facebook Messenger
+- WebUI dashboard with dark mode, feed detail panel, and sorting
+- Docker support for easy deployment
+
+---
+
+## Quick Start
+
+### Option A — Docker (recommended)
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/yourname/rss2mail.git
+cd rss2mail
+
+# 2. Set up credentials
+cp .env.example .env
+nano .env   # fill in your Gmail and Messenger values
+
+# 3. Build and run
+docker compose up -d --build
+```
+
+Open **http://localhost:5000** in your browser.
+
+> The container restarts automatically at boot as long as Docker is enabled:
+> `sudo systemctl enable docker`
+
+---
+
+### Option B — Local dev
+
+```bash
+# 1. Setup (creates venv + installs deps)
+./setup.sh
+
+# 2. Set up credentials
+cp .env.example .env
+nano .env
+
+# 3. Load env and launch both servers
+set -a && source .env && set +a
+./webui/launch.sh
+```
+
+- WebUI: http://localhost:5173
+- API:   http://localhost:5000/api
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in your values:
+
+| Variable | Description |
+|----------|-------------|
+| `RSS2MAIL_EMAIL` | Your Gmail address |
+| `RSS2MAIL_APP_PASSWORD` | Gmail [App Password](https://support.google.com/accounts/answer/185833) (not your login password) |
+| `RSS2MAIL_MESSENGER_TOKEN` | Facebook Page Access Token (optional) |
+| `RSS2MAIL_MESSENGER_RECIPIENT_ID` | Facebook Recipient ID (optional) |
+
+> Once you save settings via the WebUI, they are stored in the SQLite DB and env vars are no longer required on restart.
+
+---
+
+## CLI Usage
+
+```bash
+source venv/bin/activate
+
+python rss2mail.py send              # Send emails for new items
+python rss2mail.py add <name> <url>  # Add a feed
+python rss2mail.py remove <id>       # Remove a feed
+python rss2mail.py list              # List all feeds
+python rss2mail.py interval <min>    # Change check interval
+python rss2mail.py reset             # Reset processed items
+python rss2mail.py send-messenger    # Send to Messenger only
+python rss2mail.py send-all          # Send to both
+```
+
+---
+
+## Run at Boot (Linux)
+
+### Docker (easiest)
+
+```bash
+sudo systemctl enable docker
+# restart: unless-stopped in docker-compose.yml handles the rest
+```
+
+### systemd (without Docker)
+
+See **[webui/README.md](webui/README.md#running-at-boot-linux--systemd)** for full unit file instructions.
+
+---
+
+## File Structure
+
+```
+rss2mail/
+├── .env.example            # Credentials template — copy to .env
+├── .env                    # Your credentials (git-ignored)
+├── .gitignore
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── setup.sh                # First-time local setup
+├── rss2mail.py             # CLI entry point
+├── db.py                   # SQLite helpers
+├── messenger.py            # Messenger module
+├── config/
+│   ├── credentials.py      # Reads from env vars (git-ignored)
+│   └── settings.py         # Default interval
+├── venv/                   # Python virtualenv (git-ignored)
+├── rss2mail.db             # SQLite database (git-ignored)
+└── webui/
+    ├── README.md           # Full WebUI & deployment docs
+    ├── launch.sh           # Dev launcher
+    ├── backend/
+    │   └── app.py          # FastAPI server
+    └── frontend/           # React + TypeScript + Vite
+```
+
+---
+
+## WebUI Docs
+
+For full WebUI setup, API reference, and advanced deployment options see **[webui/README.md](webui/README.md)**.
