@@ -209,6 +209,7 @@ function Dashboard(): JSX.Element {
   const [checking, setChecking] = useState<boolean>(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [sort, setSort] = useState<SortKey>(() => (localStorage.getItem('dashboard-sort') as SortKey) || 'added');
+  const [sortAsc, setSortAsc] = useState<boolean>(() => localStorage.getItem('dashboard-sort-asc') !== 'false');
   const [lastCheck, setLastCheck] = useState<LastCheckResponse | null>(null);
   const [showLastCheck, setShowLastCheck] = useState<boolean>(false);
   const [selectedFeedId, setSelectedFeedId] = useState<number | null>(null);
@@ -231,17 +232,18 @@ function Dashboard(): JSX.Element {
 
   const sortedFeeds = useMemo(() => {
     const copy = [...feeds];
-    if (sort === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name));
+    const dir = sortAsc ? 1 : -1;
+    if (sort === 'name') return copy.sort((a, b) => dir * a.name.localeCompare(b.name));
     if (sort === 'updated') {
       return copy.sort((a, b) => {
         if (!a.last_sent_at && !b.last_sent_at) return 0;
-        if (!a.last_sent_at) return 1;
-        if (!b.last_sent_at) return -1;
-        return new Date(b.last_sent_at).getTime() - new Date(a.last_sent_at).getTime();
+        if (!a.last_sent_at) return sortAsc ? -1 : 1;
+        if (!b.last_sent_at) return sortAsc ? 1 : -1;
+        return dir * (new Date(a.last_sent_at).getTime() - new Date(b.last_sent_at).getTime());
       });
     }
-    return copy; // 'added' = default DB order
-  }, [feeds, sort]);
+    return sortAsc ? copy : copy.reverse(); // 'added' = DB order
+  }, [feeds, sort, sortAsc]);
 
   const showMessage = (text: string, type: 'success' | 'error' = 'success'): void => {
     setMessage({ text, type });
@@ -327,14 +329,26 @@ function Dashboard(): JSX.Element {
         {(['added', 'name', 'updated'] as SortKey[]).map((key) => (
           <button
             key={key}
-            onClick={() => { setSort(key); localStorage.setItem('dashboard-sort', key); }}
+            onClick={() => {
+              if (sort === key) {
+                const next = !sortAsc;
+                setSortAsc(next);
+                localStorage.setItem('dashboard-sort-asc', String(next));
+              } else {
+                setSort(key);
+                setSortAsc(true);
+                localStorage.setItem('dashboard-sort', key);
+                localStorage.setItem('dashboard-sort-asc', 'true');
+              }
+            }}
             className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
               sort === key
                 ? 'bg-blue-600 text-white border-blue-600'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-blue-400'
             }`}
           >
-            {key === 'added' ? 'Recently Added' : key === 'name' ? 'Name A–Z' : 'Recently Updated'}
+            {key === 'added' ? 'Added' : key === 'name' ? 'Name' : 'Updated'}
+            {sort === key && <span className="ml-1">{sortAsc ? '↑' : '↓'}</span>}
           </button>
         ))}
 
