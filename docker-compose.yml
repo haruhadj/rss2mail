@@ -1,0 +1,19 @@
+services:
+  rss2mail:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rss2mail
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - rss2mail-data:/data
+    env_file:
+      - .env
+    environment:
+      - RSS2MAIL_DB_PATH=/data/rss2mail.db
+
+volumes:
+  rss2mail-data:
+    driver: local
