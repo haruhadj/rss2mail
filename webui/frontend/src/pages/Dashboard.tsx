@@ -252,11 +252,11 @@ function Dashboard(): JSX.Element {
 
   const handleRemove = async (id: number, name: string): Promise<void> => {
     if (!confirm(`Are you sure you want to remove "${name}"?`)) return;
+    setSelectedFeedId(null);
 
     try {
       await api.removeFeed(id);
       showMessage(`Removed "${name}"`);
-      if (selectedFeedId === id) setSelectedFeedId(null);
       loadFeeds();
     } catch (err) {
       showMessage('Error removing feed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
@@ -459,7 +459,7 @@ function Dashboard(): JSX.Element {
         feedId={selectedFeedId}
         onClose={() => setSelectedFeedId(null)}
         onCheck={(id) => { setSelectedFeedId(null); handleCheckOne(id); }}
-        onRemove={(id, name) => { setSelectedFeedId(null); handleRemove(id, name); }}
+        onRemove={handleRemove}
         checking={checking}
       />
     </div>
