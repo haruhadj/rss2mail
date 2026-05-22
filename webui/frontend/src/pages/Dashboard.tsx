@@ -254,6 +254,7 @@ function Dashboard(): JSX.Element {
     try {
       await api.removeFeed(id);
       showMessage(`Removed "${name}"`);
+      if (selectedFeedId === id) setSelectedFeedId(null);
       loadFeeds();
     } catch (err) {
       showMessage('Error removing feed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
