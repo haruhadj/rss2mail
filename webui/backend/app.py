@@ -71,15 +71,14 @@ def _reschedule(interval_minutes: int):
     """Replace the running job with a new interval. Safe to call at any time."""
     if _scheduler.get_job("check_all"):
         _scheduler.remove_job("check_all")
-    job = _scheduler.add_job(
+    _scheduler.add_job(
         _scheduled_check_all,
         trigger="interval",
         minutes=interval_minutes,
         id="check_all",
         replace_existing=True,
     )
-    next_run = job.next_run_time.isoformat() if job.next_run_time else "unknown"
-    logger.info("[SCHEDULER] Interval set to %d minute(s), next run at %s", interval_minutes, next_run)
+    logger.info("[SCHEDULER] Interval set to %d minute(s)", interval_minutes)
 
 
 @asynccontextmanager
