@@ -18,6 +18,12 @@ from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 import feedparser
 
+# Configure logging so scheduler output is visible
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
@@ -41,29 +47,39 @@ _scheduler = BackgroundScheduler()
 
 
 def _scheduled_check_all():
-    logger.info("Scheduled check: running...")
-    feeds = db.get_feeds()
-    opts = CheckOptions(send_email=True, send_messenger=None, max_items=5)
-    for f in feeds:
-        try:
-            _do_check(f["id"], f["name"], f["url"], opts)
-        except Exception as e:
-            logger.error("Scheduled check error for '%s': %s", f["name"], e)
-    logger.info("Scheduled check: done")
+    logger.info("[SCHEDULER] Running scheduled check for all feeds...")
+    try:
+        feeds = db.get_feeds()
+        logger.info("[SCHEDULER] Found %d feeds to check", len(feeds))
+        if not feeds:
+            logger.info("[SCHEDULER] No feeds configured, skipping")
+            return
+
+        opts = CheckOptions(send_email=True, send_messenger=None, max_items=5)
+        for f in feeds:
+            try:
+                result = _do_check(f["id"], f["name"], f["url"], opts)
+                logger.info("[SCHEDULER] Checked '%s': %s (%d items)", f["name"], result.get("status"), result.get("items_count", 0))
+            except Exception as e:
+                logger.error("[SCHEDULER] Error checking '%s': %s", f["name"], e, exc_info=True)
+        logger.info("[SCHEDULER] Scheduled check completed")
+    except Exception as e:
+        logger.error("[SCHEDULER] Fatal error in scheduled check: %s", e, exc_info=True)
 
 
 def _reschedule(interval_minutes: int):
     """Replace the running job with a new interval. Safe to call at any time."""
     if _scheduler.get_job("check_all"):
         _scheduler.remove_job("check_all")
-    _scheduler.add_job(
+    job = _scheduler.add_job(
         _scheduled_check_all,
         trigger="interval",
         minutes=interval_minutes,
         id="check_all",
         replace_existing=True,
     )
-    logger.info("Scheduler set to every %d minute(s)", interval_minutes)
+    next_run = job.next_run_time.isoformat() if job.next_run_time else "unknown"
+    logger.info("[SCHEDULER] Interval set to %d minute(s), next run at %s", interval_minutes, next_run)
 
 
 @asynccontextmanager
@@ -277,6 +293,20 @@ def get_last_check():
         "results": db.get_last_check_results(),
         "last_check_time": db.get_last_check_time(),
     }
+
+
+# ─── Scheduler status (for debugging) ─────────────────────────────────────────
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    job = _scheduler.get_job("check_all")
+    if job:
+        return {
+            "running": _scheduler.running,
+            "interval_minutes": int((job.trigger.interval.total_seconds() / 60)) if hasattr(job.trigger, 'interval') else None,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+        }
+    return {"running": _scheduler.running, "interval_minutes": None, "next_run": None}
 
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
