@@ -6,6 +6,8 @@ export interface Feed {
   url: string;
   cover_url?: string | null;
   last_sent_at?: string | null;
+  tags?: string[];
+  last_check_items_count?: number;
 }
 
 export interface LastCheckResult {
@@ -30,11 +32,52 @@ export interface FeedDetails {
   url: string;
   cover_url?: string | null;
   last_sent_at?: string | null;
+  tags?: string[];
   description: string;
   series_link: string;
   last_build_date: string;
   total_items: number;
   items: FeedItem[];
+}
+
+export interface DiscoverResult {
+  id: string;
+  title: string;
+  cover_url: string | null;
+  feed_url: string;
+}
+
+export interface DiscoverResponse {
+  results: DiscoverResult[];
+}
+
+export interface MarkReadResponse {
+  success: boolean;
+  message: string;
+  count: number;
+}
+
+export interface ImportResponse {
+  added: number;
+  skipped: number;
+  failed: { name: string; url: string; error: string }[];
+}
+
+export interface StatsWeek {
+  week: string;
+  count: number;
+}
+
+export interface StatsTopFeed {
+  feed_title: string;
+  count: number;
+}
+
+export interface Stats {
+  total_feeds: number;
+  total_chapters: number;
+  top_feeds: StatsTopFeed[];
+  weekly: StatsWeek[];
 }
 
 export interface LastCheckResponse {
@@ -70,8 +113,10 @@ export interface ApiError {
 export interface Settings {
   email: string;
   app_password: string;
+  has_app_password?: boolean;
   messenger_enabled: boolean;
   messenger_page_token: string;
+  has_messenger_page_token?: boolean;
   messenger_recipient_id: string;
   send_interval: number;
 }

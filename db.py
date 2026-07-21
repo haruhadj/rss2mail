@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -7,7 +8,7 @@ DB_PATH = os.environ.get("RSS2MAIL_DB_PATH", os.path.join(SCRIPT_DIR, "rss2mail.
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
@@ -58,6 +59,7 @@ def init_db():
         for migration in [
             "ALTER TABLE feeds ADD COLUMN cover_url TEXT",
             "ALTER TABLE feeds ADD COLUMN last_sent_at TEXT",
+            "ALTER TABLE feeds ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
         ]:
             try:
                 conn.execute(migration)
@@ -143,9 +145,18 @@ def _seed_processed_items():
 
 # ─── Feeds ───────────────────────────────────────────────────────────────────
 
+def _row_to_feed(row) -> dict:
+    feed = dict(row)
+    try:
+        feed["tags"] = json.loads(feed.get("tags") or "[]")
+    except (TypeError, ValueError):
+        feed["tags"] = []
+    return feed
+
+
 def get_feeds():
     with get_conn() as conn:
-        return [dict(row) for row in conn.execute("SELECT * FROM feeds ORDER BY id")]
+        return [_row_to_feed(row) for row in conn.execute("SELECT * FROM feeds ORDER BY id")]
 
 
 def add_feed(name: str, url: str, cover_url: str = None) -> dict:
@@ -153,7 +164,12 @@ def add_feed(name: str, url: str, cover_url: str = None) -> dict:
         cur = conn.execute(
             "INSERT INTO feeds (name, url, cover_url) VALUES (?, ?, ?)", (name, url, cover_url)
         )
-        return {"id": cur.lastrowid, "name": name, "url": url, "cover_url": cover_url}
+        return {"id": cur.lastrowid, "name": name, "url": url, "cover_url": cover_url, "tags": []}
+
+
+def update_feed_tags(feed_id: int, tags: list):
+    with get_conn() as conn:
+        conn.execute("UPDATE feeds SET tags = ? WHERE id = ?", (json.dumps(tags), feed_id))
 
 
 def update_feed_cover(feed_id: int, cover_url: str):
@@ -178,10 +194,17 @@ def remove_feed(feed_id: int) -> bool:
 def get_feed_by_id(feed_id: int):
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM feeds WHERE id = ?", (feed_id,)).fetchone()
-        return dict(row) if row else None
+        return _row_to_feed(row) if row else None
 
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
+
+def _safe_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 
 def get_settings() -> dict:
     with get_conn() as conn:
@@ -193,7 +216,7 @@ def get_settings() -> dict:
         "messenger_enabled": result.get("messenger_enabled", "False") == "True",
         "messenger_page_token": result.get("messenger_page_token", ""),
         "messenger_recipient_id": result.get("messenger_recipient_id", ""),
-        "send_interval": int(result.get("send_interval", 15)),
+        "send_interval": _safe_int(result.get("send_interval"), 15),
     }
 
 
@@ -263,6 +286,38 @@ def get_last_check_time() -> str | None:
             "SELECT MAX(checked_at) as last FROM last_check_results"
         ).fetchone()
         return row["last"] if row else None
+
+
+# ─── Stats ────────────────────────────────────────────────────────────────────
+
+def get_stats() -> dict:
+    with get_conn() as conn:
+        total_feeds = conn.execute("SELECT COUNT(*) FROM feeds").fetchone()[0]
+        total_chapters = conn.execute("SELECT COUNT(*) FROM processed_items").fetchone()[0]
+
+        top_feeds = [
+            {"feed_title": row["feed_title"], "count": row["count"]}
+            for row in conn.execute(
+                "SELECT feed_title, COUNT(*) as count FROM processed_items "
+                "WHERE feed_title IS NOT NULL GROUP BY feed_title ORDER BY count DESC LIMIT 5"
+            ).fetchall()
+        ]
+
+        weekly = [
+            {"week": row["week"], "count": row["count"]}
+            for row in conn.execute(
+                "SELECT strftime('%Y-W%W', created_at) as week, COUNT(*) as count "
+                "FROM processed_items GROUP BY week ORDER BY week DESC LIMIT 12"
+            ).fetchall()
+        ]
+        weekly.reverse()
+
+    return {
+        "total_feeds": total_feeds,
+        "total_chapters": total_chapters,
+        "top_feeds": top_feeds,
+        "weekly": weekly,
+    }
 
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────

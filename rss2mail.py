@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import socket
 import feedparser
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -12,6 +13,18 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(SCRIPT_DIR, "config")
 PROCESSED_ITEMS_FILE = os.path.join(CONFIG_DIR, "processed_items.txt")
+
+NETWORK_TIMEOUT = 15  # seconds; keeps a hung feed/SMTP server from stalling the scheduler thread
+
+
+def parse_feed(url):
+    """feedparser.parse() with a bounded socket timeout."""
+    previous_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(NETWORK_TIMEOUT)
+    try:
+        return feedparser.parse(url)
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
 
 # Use db module if available, else fall back to txt file
 try:
@@ -89,7 +102,7 @@ def send_email(feed_title, items, cover_image_url=None):
     part = MIMEText(html_body, 'html')
     msg.attach(part)
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=NETWORK_TIMEOUT) as server:
         server.login(credentials.EMAIL, credentials.APP_PASSWORD)
         server.sendmail(credentials.EMAIL, credentials.EMAIL, msg.as_string())
 
@@ -133,7 +146,7 @@ def mark_as_processed(item_url, feed_title=None):
 
 def fetch_rss_feed(url, max_items=5):
     """Fetch RSS feed and return up to `max_items` unprocessed entries."""
-    feed = feedparser.parse(url)
+    feed = parse_feed(url)
     processed_items = load_processed_items()
     items = []
 
@@ -187,7 +200,7 @@ def save_feeds():
 
 def get_feed_title(url):
     """Fetch and return the title from the RSS feed."""
-    feed = feedparser.parse(url)
+    feed = parse_feed(url)
     if 'title' in feed.feed:
         return feed.feed.title
     return None
@@ -220,7 +233,7 @@ Available commands:
         max_items = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 5
 
         for name, url in feeds.FEEDS:
-            feed = feedparser.parse(url)
+            feed = parse_feed(url)
             feed_title = feed.feed.title if 'title' in feed.feed else name
             items, cover_image_url = fetch_rss_feed(url, max_items)
 

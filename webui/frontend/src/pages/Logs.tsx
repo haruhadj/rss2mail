@@ -65,12 +65,12 @@ function Logs(): JSX.Element {
   return (
     <div>
       <div className="flex flex-wrap gap-3 justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Activity Logs</h2>
-        <div className="flex gap-2">
-          <button onClick={handleRefresh} className="btn-secondary whitespace-nowrap">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">Activity Logs</h2>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={handleRefresh} className="btn-secondary flex-1 sm:flex-none whitespace-nowrap">
             Refresh
           </button>
-          <button onClick={handleReset} disabled={resetting} className="btn-danger whitespace-nowrap">
+          <button onClick={handleReset} disabled={resetting} className="btn-danger flex-1 sm:flex-none whitespace-nowrap">
             {resetting ? 'Resetting...' : 'Reset'}
           </button>
         </div>
@@ -88,7 +88,7 @@ function Logs(): JSX.Element {
 
       <div className="card">
         {logs.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 dark:text-gray-400">No log entries found.</div>
+          <div className="text-center py-8 text-slate-500 dark:text-slate-400">No log entries found.</div>
         ) : (
           <div className="space-y-1 font-mono text-xs sm:text-sm">
             {logs.map((log, idx) => (
@@ -99,7 +99,7 @@ function Logs(): JSX.Element {
                     ? 'bg-red-50 text-red-800 dark:bg-red-900/30 dark:text-red-300'
                     : log.includes('sent') || log.includes('success')
                     ? 'bg-green-50 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                    : 'text-gray-700 dark:text-gray-300'
+                    : 'text-slate-700 dark:text-slate-300'
                 }`}
               >
                 {log}

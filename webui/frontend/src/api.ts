@@ -10,6 +10,10 @@ import type {
   ApiSuccess,
   LastCheckResponse,
   FeedDetails,
+  DiscoverResponse,
+  MarkReadResponse,
+  ImportResponse,
+  Stats,
 } from './types';
 
 const API_BASE = '/api';
@@ -63,7 +67,7 @@ export const api = {
 
   // Settings
   getSettings: () => apiRequest<Settings>('/settings'),
-  updateSettings: (settings: Settings) =>
+  updateSettings: (settings: Partial<Settings>) =>
     apiRequest<ApiSuccess>('/settings', {
       method: 'POST',
       body: JSON.stringify(settings),
@@ -83,5 +87,45 @@ export const api = {
 
   // Logs
   getLogs: () => apiRequest<LogsResponse>('/logs'),
+
+  // Discovery
+  discover: (query: string) =>
+    apiRequest<DiscoverResponse>(`/discover?q=${encodeURIComponent(query)}`),
+
+  // Tags
+  updateFeedTags: (id: number, tags: string[]) =>
+    apiRequest<ApiSuccess & { tags: string[] }>(`/feeds/${id}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify({ tags }),
+    }),
+
+  // Mark read
+  markFeedRead: (id: number) =>
+    apiRequest<MarkReadResponse>(`/feeds/${id}/mark-read`, {
+      method: 'POST',
+    }),
+
+  // Import / export
+  exportFeeds: async (format: 'opml' | 'json'): Promise<Blob> => {
+    const response = await fetch(`${API_BASE}/feeds/export?format=${format}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.blob();
+  },
+  importFeeds: async (file: File): Promise<ImportResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE}/feeds/import`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+    return response.json() as Promise<ImportResponse>;
+  },
+
+  // Stats
+  getStats: () => apiRequest<Stats>('/stats'),
 };
 

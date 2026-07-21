@@ -1,0 +1,42 @@
+<section id="quick-search-result" x-data="{ showResult: true }">
+    <div class="h-screen w-screen opacity-50 bg-black fixed inset-0" x-show="showResult" @click="showResult = false; clearQuickSearch()"></div>
+    <div class="w-full join join-vertical flex absolute inset-x-0 z-50 mt-4 rounded-none" x-show="showResult">
+        
+        <a href="https://weebcentral.com/series/01J76XY7FQY59WRK2YWX5T4E5N/Vinland-Saga" class="btn join-item h-20">
+            <div class="w-12 h-12 overflow-hidden">
+                <picture>
+                    <source srcset="https://temp.compsci88.com/cover/small/01J76XY7FQY59WRK2YWX5T4E5N.webp" width="200" height="300" type="image/webp">
+                    <img src="https://temp.compsci88.com/cover/fallback/01J76XY7FQY59WRK2YWX5T4E5N.jpg" alt="Vinland Saga cover" width="200" height="300" decoding="async">
+                </picture>
+            </div>
+            <div class="flex-1 overflow-hidden text-left text-ellipsis leading-normal line-clamp-2">
+                Vinland Saga
+            </div>
+        </a>
+        
+        <a href="https://weebcentral.com/series/01J76XYB5KJYZZ2ZGTF22QD1MV/Huanxiang-Zhi-Zhou" class="btn join-item h-20">
+            <div class="w-12 h-12 overflow-hidden">
+                <picture>
+                    <source srcset="https://temp.compsci88.com/cover/small/01J76XYB5KJYZZ2ZGTF22QD1MV.webp" width="200" height="300" type="image/webp">
+                    <img src="https://temp.compsci88.com/cover/fallback/01J76XYB5KJYZZ2ZGTF22QD1MV.jpg" alt="Huanxiang Zhi Zhou cover" width="200" height="300" decoding="async">
+                </picture>
+            </div>
+            <div class="flex-1 overflow-hidden text-left text-ellipsis leading-normal line-clamp-2">
+                Huanxiang Zhi Zhou
+            </div>
+        </a>
+        
+        <a href="https://weebcentral.com/series/01K3GMCNJ3JV95T3ZH547QB4PJ/land" class="btn join-item h-20">
+            <div class="w-12 h-12 overflow-hidden">
+                <picture>
+                    <source srcset="https://temp.compsci88.com/cover/small/01K3GMCNJ3JV95T3ZH547QB4PJ.webp" width="200" height="300" type="image/webp">
+                    <img src="https://temp.compsci88.com/cover/fallback/01K3GMCNJ3JV95T3ZH547QB4PJ.jpg" alt="Land cover" width="200" height="300" decoding="async">
+                </picture>
+            </div>
+            <div class="flex-1 overflow-hidden text-left text-ellipsis leading-normal line-clamp-2">
+                Land
+            </div>
+        </a>
+        
+    </div>
+</section>

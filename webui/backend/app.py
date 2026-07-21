@@ -3,17 +3,19 @@
 RSS2Mail WebUI Backend - FastAPI Server
 """
 
+import json
 import os
 import sys
 import smtplib
 import logging
+import xml.etree.ElementTree as ET
 from email.mime.text import MIMEText
 from typing import Optional, List
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from apscheduler.schedulers.background import BackgroundScheduler
 import feedparser
@@ -29,6 +31,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, PROJECT_ROOT)
 import rss2mail as rssmod
 import db
+import discovery
 
 # Optional Messenger support
 try:
@@ -109,6 +112,9 @@ class AddFeedRequest(BaseModel):
     name: Optional[str] = None
     url: str
 
+class TagsUpdate(BaseModel):
+    tags: List[str]
+
 class SettingsUpdate(BaseModel):
     email: Optional[str] = None
     app_password: Optional[str] = None
@@ -131,7 +137,7 @@ def _should_send_messenger(override: Optional[bool]) -> bool:
 
 def _do_check(feed_id: int, name: str, url: str, opts: CheckOptions) -> dict:
     feed_title = rssmod.get_feed_title(url) or name
-    feed_obj = feedparser.parse(url)
+    feed_obj = rssmod.parse_feed(url)
     processed = set()
     items = []
     cover_image = None
@@ -163,6 +169,7 @@ def _do_check(feed_id: int, name: str, url: str, opts: CheckOptions) -> dict:
     except Exception as e:
         db.save_check_result(feed_id, feed_title, "error", 0, str(e))
         db.add_log(f"Error checking '{feed_title}': {e}")
+        logger.error("Error checking '%s': %s", feed_title, e, exc_info=True)
         return {"feed": feed_title, "status": "error", "error": str(e)}
 
 
@@ -179,16 +186,19 @@ def _extract_cover(feed_obj) -> str | None:
 @app.get("/api/feeds")
 def get_feeds():
     feeds = db.get_feeds()
+    last_check_by_feed = {r["feed_id"]: r for r in db.get_last_check_results()}
     # Backfill cover_url for feeds missing it (runs once per feed)
     for feed in feeds:
         if not feed.get("cover_url"):
             try:
-                cover = _extract_cover(feedparser.parse(feed["url"]))
+                cover = _extract_cover(rssmod.parse_feed(feed["url"]))
                 if cover:
                     db.update_feed_cover(feed["id"], cover)
                     feed["cover_url"] = cover
             except Exception:
                 pass
+        last_check = last_check_by_feed.get(feed["id"])
+        feed["last_check_items_count"] = last_check["items_count"] if last_check and last_check["status"] == "sent" else 0
     return {"feeds": feeds}
 
 
@@ -198,7 +208,11 @@ def add_feed(body: AddFeedRequest):
     name = (body.name or "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
-    feed_data = feedparser.parse(url)
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    feed_data = rssmod.parse_feed(url)
+    if feed_data.bozo and not feed_data.entries:
+        raise HTTPException(status_code=400, detail="Invalid or unreachable RSS feed URL")
     if not feed_data.entries and not feed_data.feed:
         raise HTTPException(status_code=400, detail="Invalid or unreachable RSS feed URL")
     if not name:
@@ -217,7 +231,7 @@ def get_feed_details(feed_id: int):
     if not feed:
         raise HTTPException(status_code=404, detail="Feed not found")
     try:
-        parsed = feedparser.parse(feed["url"])
+        parsed = rssmod.parse_feed(feed["url"])
         cover_url = _extract_cover(parsed)
         items = []
         for entry in parsed.entries:
@@ -234,6 +248,7 @@ def get_feed_details(feed_id: int):
             "url": feed["url"],
             "cover_url": cover_url or feed.get("cover_url"),
             "last_sent_at": feed.get("last_sent_at"),
+            "tags": feed.get("tags", []),
             "description": parsed.feed.get("description", ""),
             "series_link": parsed.feed.get("link", ""),
             "last_build_date": parsed.feed.get("updated", ""),
@@ -252,6 +267,114 @@ def remove_feed(feed_id: int):
     db.remove_feed(feed_id)
     db.add_log(f"Feed removed: {feed['name']}")
     return {"success": True, "message": f"Feed removed: {feed['name']}"}
+
+
+@app.put("/api/feeds/{feed_id}/tags")
+def update_feed_tags(feed_id: int, body: TagsUpdate):
+    feed = db.get_feed_by_id(feed_id)
+    if not feed:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    tags = sorted({t.strip() for t in body.tags if t.strip()})
+    db.update_feed_tags(feed_id, tags)
+    return {"success": True, "message": "Tags updated", "tags": tags}
+
+
+@app.post("/api/feeds/{feed_id}/mark-read")
+def mark_feed_read(feed_id: int):
+    feed = db.get_feed_by_id(feed_id)
+    if not feed:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    try:
+        parsed = rssmod.parse_feed(feed["url"])
+        count = 0
+        for entry in parsed.entries:
+            link = entry.get("link", "")
+            if link and not db.is_processed(link):
+                db.mark_processed(link, feed["name"])
+                count += 1
+        db.add_log(f"Marked {count} item(s) as read for '{feed['name']}'")
+        return {"success": True, "message": f"Marked {count} item(s) as read", "count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Import / Export ──────────────────────────────────────────────────────────
+
+@app.get("/api/feeds/export")
+def export_feeds(format: str = "opml"):
+    feeds = db.get_feeds()
+    if format == "json":
+        payload = [{"name": f["name"], "url": f["url"], "tags": f.get("tags", [])} for f in feeds]
+        return Response(
+            content=json.dumps(payload, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=rss2mail-feeds.json"},
+        )
+
+    root = ET.Element("opml", version="2.0")
+    head = ET.SubElement(root, "head")
+    ET.SubElement(head, "title").text = "RSS2Mail Feeds"
+    body = ET.SubElement(root, "body")
+    for feed in feeds:
+        outline = ET.SubElement(body, "outline", type="rss", text=feed["name"], xmlUrl=feed["url"])
+        if feed.get("tags"):
+            outline.set("category", ",".join(feed["tags"]))
+    xml_bytes = b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8")
+    return Response(
+        content=xml_bytes,
+        media_type="text/x-opml",
+        headers={"Content-Disposition": "attachment; filename=rss2mail-feeds.opml"},
+    )
+
+
+@app.post("/api/feeds/import")
+async def import_feeds(file: UploadFile = File(...)):
+    raw = (await file.read()).decode("utf-8", errors="ignore")
+    existing_urls = {f["url"] for f in db.get_feeds()}
+    entries = []
+
+    try:
+        if (file.filename or "").lower().endswith(".json"):
+            data = json.loads(raw)
+            for item in data:
+                url = (item.get("url") or "").strip()
+                name = (item.get("name") or "").strip()
+                if url and name:
+                    entries.append((name, url, item.get("tags") or []))
+        else:
+            root = ET.fromstring(raw)
+            for outline in root.iter("outline"):
+                url = (outline.get("xmlUrl") or "").strip()
+                name = (outline.get("text") or outline.get("title") or "").strip()
+                tags = [t for t in (outline.get("category") or "").split(",") if t]
+                if url and name:
+                    entries.append((name, url, tags))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse import file: {e}")
+
+    added, skipped, failed = 0, 0, []
+    for name, url, tags in entries:
+        if url in existing_urls:
+            skipped += 1
+            continue
+        try:
+            feed = db.add_feed(name, url)
+            if tags:
+                db.update_feed_tags(feed["id"], tags)
+            existing_urls.add(url)
+            added += 1
+        except Exception as e:
+            failed.append({"name": name, "url": url, "error": str(e)})
+
+    db.add_log(f"Imported feeds: {added} added, {skipped} skipped, {len(failed)} failed")
+    return {"added": added, "skipped": skipped, "failed": failed}
+
+
+# ─── Discovery ────────────────────────────────────────────────────────────────
+
+@app.get("/api/discover")
+def discover_series(q: str = ""):
+    return {"results": discovery.search_weebcentral(q)}
 
 
 # ─── Check ────────────────────────────────────────────────────────────────────
@@ -312,7 +435,15 @@ def scheduler_status():
 
 @app.get("/api/settings")
 def get_settings():
-    return db.get_settings()
+    settings = db.get_settings()
+    # Never return secrets over the API; frontend leaves these fields blank
+    # unless the user is setting a new value. has_* flags let the UI know
+    # a value is already configured without exposing it.
+    settings["has_app_password"] = bool(settings.get("app_password"))
+    settings["has_messenger_page_token"] = bool(settings.get("messenger_page_token"))
+    settings["app_password"] = ""
+    settings["messenger_page_token"] = ""
+    return settings
 
 
 @app.post("/api/settings")
@@ -339,12 +470,19 @@ def test_email():
         msg["Subject"] = "RSS2Mail Test Email"
         msg["From"] = email
         msg["To"] = email
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
             server.login(email, password)
             server.sendmail(email, email, msg.as_string())
         return {"success": True, "message": "Test email sent successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Stats ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/stats")
+def get_stats():
+    return db.get_stats()
 
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
@@ -369,5 +507,6 @@ if os.path.isdir(STATIC_DIR):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)
+    host = os.environ.get("RSS2MAIL_HOST", "127.0.0.1")
+    uvicorn.run("app:app", host=host, port=5000, reload=True)
 

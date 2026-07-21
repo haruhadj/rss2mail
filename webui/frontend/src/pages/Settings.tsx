@@ -1,4 +1,4 @@
-import { useState, useEffect, ChangeEvent, FormEvent } from 'react';
+import { useState, useEffect, useRef, ChangeEvent, FormEvent } from 'react';
 import { api } from '../api';
 import type { Settings as SettingsType } from '../types';
 
@@ -11,8 +11,10 @@ function Settings(): JSX.Element {
   const [settings, setSettings] = useState<SettingsType>({
     email: '',
     app_password: '',
+    has_app_password: false,
     messenger_enabled: false,
     messenger_page_token: '',
+    has_messenger_page_token: false,
     messenger_recipient_id: '',
     send_interval: 15,
   });
@@ -21,6 +23,9 @@ function Settings(): JSX.Element {
   const [testing, setTesting] = useState<boolean>(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [exporting, setExporting] = useState<'opml' | 'json' | null>(null);
+  const [importing, setImporting] = useState<boolean>(false);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -31,9 +36,11 @@ function Settings(): JSX.Element {
       const data = await api.getSettings();
       setSettings({
         email: data.email || '',
-        app_password: data.app_password || '',
-        messenger_enabled: data.messenger_enabled ?? !!(data.messenger_page_token || data.messenger_recipient_id),
-        messenger_page_token: data.messenger_page_token || '',
+        app_password: '',
+        has_app_password: !!data.has_app_password,
+        messenger_enabled: data.messenger_enabled ?? !!(data.has_messenger_page_token || data.messenger_recipient_id),
+        messenger_page_token: '',
+        has_messenger_page_token: !!data.has_messenger_page_token,
         messenger_recipient_id: data.messenger_recipient_id || '',
         send_interval: data.send_interval || 15,
       });
@@ -62,12 +69,56 @@ function Settings(): JSX.Element {
     setSaving(true);
 
     try {
-      await api.updateSettings(settings);
+      const payload: Partial<SettingsType> = {
+        email: settings.email,
+        messenger_enabled: settings.messenger_enabled,
+        messenger_recipient_id: settings.messenger_recipient_id,
+        send_interval: settings.send_interval,
+      };
+      if (settings.app_password) payload.app_password = settings.app_password;
+      if (settings.messenger_page_token) payload.messenger_page_token = settings.messenger_page_token;
+      await api.updateSettings(payload);
       showMessage('Settings saved successfully!');
     } catch (err) {
       showMessage('Error saving settings: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExport = async (format: 'opml' | 'json'): Promise<void> => {
+    setExporting(format);
+    try {
+      const blob = await api.exportFeeds(format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rss2mail-feeds.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showMessage('Export failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleImportFile = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const result = await api.importFeeds(file);
+      const failedNote = result.failed.length > 0 ? `, ${result.failed.length} failed` : '';
+      showMessage(`Imported: ${result.added} added, ${result.skipped} skipped${failedNote}`);
+    } catch (err) {
+      showMessage('Import failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -89,7 +140,7 @@ function Settings(): JSX.Element {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6">Settings</h2>
+      <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 mb-6">Settings</h2>
 
       {message && (
         <div
@@ -103,7 +154,7 @@ function Settings(): JSX.Element {
 
       <form onSubmit={handleSubmit} className="card space-y-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Email Configuration</h3>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Email Configuration</h3>
 
           <div className="space-y-4">
             <div>
@@ -126,18 +177,18 @@ function Settings(): JSX.Element {
                   name="app_password"
                   value={settings.app_password}
                   onChange={handleChange}
-                  placeholder="xxxx xxxx xxxx xxxx"
+                  placeholder={settings.has_app_password ? 'Unchanged — enter a new value to replace it' : 'xxxx xxxx xxxx xxxx'}
                   className="input pr-20"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 Generate an App Password from your Google Account settings.
               </p>
             </div>
@@ -145,7 +196,7 @@ function Settings(): JSX.Element {
             <button
               type="button"
               onClick={handleTestEmail}
-              disabled={testing || !settings.email || !settings.app_password}
+              disabled={testing || !settings.email || (!settings.app_password && !settings.has_app_password)}
               className="btn-secondary text-sm"
             >
               {testing ? 'Testing...' : 'Test Email'}
@@ -153,10 +204,10 @@ function Settings(): JSX.Element {
           </div>
         </div>
 
-        <hr className="border-gray-200 dark:border-gray-700" />
+        <hr className="border-slate-200 dark:border-slate-700" />
 
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Facebook Messenger</h3>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Facebook Messenger</h3>
 
           <div className="space-y-4">
             <label className="flex items-center gap-3 cursor-pointer">
@@ -170,7 +221,7 @@ function Settings(): JSX.Element {
                 />
                 <div
                   className={`w-11 h-6 rounded-full transition-colors ${
-                    settings.messenger_enabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                    settings.messenger_enabled ? 'bg-primary-600' : 'bg-slate-300 dark:bg-slate-600'
                   }`}
                 />
                 <div
@@ -179,7 +230,7 @@ function Settings(): JSX.Element {
                   }`}
                 />
               </div>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Facebook Messenger</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Enable Facebook Messenger</span>
             </label>
 
             {settings.messenger_enabled && (
@@ -191,7 +242,7 @@ function Settings(): JSX.Element {
                     name="messenger_page_token"
                     value={settings.messenger_page_token}
                     onChange={handleChange}
-                    placeholder="EAAP..."
+                    placeholder={settings.has_messenger_page_token ? 'Unchanged — enter a new value to replace it' : 'EAAP...'}
                     className="input"
                   />
                 </div>
@@ -212,10 +263,10 @@ function Settings(): JSX.Element {
           </div>
         </div>
 
-        <hr className="border-gray-200 dark:border-gray-700" />
+        <hr className="border-slate-200 dark:border-slate-700" />
 
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">General Settings</h3>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">General Settings</h3>
 
           <div>
             <label className="label">Check Interval (minutes)</label>
@@ -228,7 +279,7 @@ function Settings(): JSX.Element {
               max={1440}
               className="input"
             />
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
               How often to check for new RSS items (used by cron job).
             </p>
           </div>
@@ -240,6 +291,47 @@ function Settings(): JSX.Element {
           </button>
         </div>
       </form>
+
+      <div className="mt-6 card">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-1">Feed Backup</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          Export your feed list to back it up or move it to another instance, or import a previously exported file.
+        </p>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={() => handleExport('opml')}
+            disabled={exporting !== null}
+            className="btn-secondary flex-1"
+          >
+            {exporting === 'opml' ? 'Exporting...' : 'Export OPML'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleExport('json')}
+            disabled={exporting !== null}
+            className="btn-secondary flex-1"
+          >
+            {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
+          </button>
+          <button
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+            className="btn-secondary flex-1"
+          >
+            {importing ? 'Importing...' : 'Import File'}
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".opml,.xml,.json"
+            onChange={handleImportFile}
+            className="hidden"
+          />
+        </div>
+      </div>
     </div>
   );
 }
