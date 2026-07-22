@@ -15,9 +15,13 @@ Includes a full **WebUI** for managing feeds, settings, and logs.
 
 ---
 
-## Quick Start
+## Installation
 
-### Option A — Docker (recommended)
+### Docker Compose (recommended)
+
+This is the recommended way to run RSS2Mail — it builds the frontend, installs
+all Python dependencies, and persists your database in a Docker volume, all in
+one command.
 
 ```bash
 # 1. Clone the repo
@@ -28,18 +32,37 @@ cd rss2mail
 cp .env.example .env
 nano .env   # fill in your Gmail and Messenger values
 
-# 3. Build and run
+# 3. Build and start the container
 docker compose up -d --build
 ```
 
 Open **http://localhost:5000** in your browser.
 
-> The container restarts automatically at boot as long as Docker is enabled:
-> `sudo systemctl enable docker`
+To pull in updates later:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Useful day-to-day commands:
+
+```bash
+docker compose logs -f      # tail logs
+docker compose restart      # restart the container
+docker compose down         # stop (data in the volume is preserved)
+```
+
+> The container restarts automatically after a reboot as long as Docker itself
+> is enabled: `sudo systemctl enable docker`. `restart: unless-stopped` in
+> `docker-compose.yml` handles the rest — no extra systemd unit needed.
 
 ---
 
-### Option B — Local dev
+### Local development (without Docker)
+
+Only needed if you're modifying the code — for normal use, prefer Docker
+Compose above.
 
 ```bash
 # 1. Setup (creates venv + installs deps)
@@ -93,16 +116,12 @@ python rss2mail.py send-all          # Send to both
 
 ## Run at Boot (Linux)
 
-### Docker (easiest)
+With Docker Compose, `sudo systemctl enable docker` plus `restart: unless-stopped`
+in `docker-compose.yml` is all you need — see the Docker Compose section above.
 
-```bash
-sudo systemctl enable docker
-# restart: unless-stopped in docker-compose.yml handles the rest
-```
-
-### systemd (without Docker)
-
-See **[webui/README.md](webui/README.md#running-at-boot-linux--systemd)** for full unit file instructions.
+Running without Docker instead? See
+**[webui/README.md](webui/README.md#running-at-boot-linux--systemd)** for
+systemd unit file instructions.
 
 ---
 
