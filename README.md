@@ -9,10 +9,11 @@ Includes a full **WebUI** for managing feeds, settings, and logs.
 
 ## Features
 
-- Monitor multiple RSS feeds on a configurable interval
+- Monitor multiple RSS feeds on a configurable interval — works with **any standard RSS/Atom feed**, not just manga sites
 - Send email digests via Gmail (SMTP)
 - Send updates to Facebook Messenger
 - WebUI dashboard with dark mode, feed detail panel, and sorting
+- Built-in **Discover** search to find and add Weebcentral manga/manhwa series by name (optional convenience feature — you can still add any feed manually by URL)
 - Docker support for easy deployment
 
 ---
