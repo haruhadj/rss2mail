@@ -3,8 +3,6 @@
 Monitor RSS feeds and send new items via **Gmail** and/or **Facebook Messenger**.
 Includes a full **WebUI** for managing feeds, settings, and logs.
 
-![RSS2Mail WebUI](public/images/webui-showcase.png)
-
 ---
 
 ## Features
